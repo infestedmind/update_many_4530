@@ -1,0 +1,8 @@
+###TFTP###
+tftp_server_ip: 10.8.8.9
+filename: QSW-4530-X_8.2.3.254_nos.img
+###SWITCHES###
+login: admin
+password: admin
+.
+10.45.30.8
