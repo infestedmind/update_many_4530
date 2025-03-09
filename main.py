@@ -60,6 +60,7 @@ def wait_for_prompt(shell, prompt="#", timeout=60):
     return buffer
 
 def execute_command(ssh_client, command, wait_time=1):
+    print(command)
     shell = ssh_client.invoke_shell()
     shell.send(command + "\n")
     time.sleep(wait_time)
