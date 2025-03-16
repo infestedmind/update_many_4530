@@ -1,2 +1,4 @@
+cryptography==44.0.2
 paramiko==3.4.0
 ping3==4.0.8
+tqdm==4.67.1
