@@ -70,48 +70,52 @@ def wait_for_write_ok(shell):
     while True:
         buffer += shell.recv(65535).decode()
         if "Get Img file size success" in buffer:
-            buffer = ""
             break
-        for i in tqdm(range(4000)):
-            buffer += shell.recv(65535).decode()
-            i = len(buffer)
-            if "File transfer complete." in buffer:
-                i = 4000
-                buffer = ""
-                print(f"Загрузка завершена")
-                print(f"Запись файла локально...")
-        while not "Write ok." in buffer:
-            buffer += shell.recv(65535).decode()
-        print(f"Запись файла завершена.")
-        break
-    time.sleep(CHECK_INTERVAL)
+    buffer = ""
+    i = 0
+    pbar = tqdm(total=4000)
+    while i < 4000:
+        buffer += shell.recv(65535).decode()
+        n = len(buffer)
+        if i < n:
+            pbar.update(n-i)
+        i = n
+        if "File transfer complete." in buffer:
+            pbar.close()
+            print(f"Загрузка файла завершена!")
+            break
+    print(f"Запись файла локально...")
+    buffer = ""
+    while not "Write ok." in buffer:
+        buffer += shell.recv(65535).decode()
+        time.sleep(5)
+    print(f"Запись файла завершена!")
 
 def wait_for_write_ok_lite(shell):
     buffer = ""
-    while True:
-        print(f"Запись файла локально...")
+    buffer = shell.recv(65535).decode()
+    print(f"Запись файла локально...")
+    while not "Write ok." in buffer:
         buffer += shell.recv(65535).decode()
-        while not "Write ok." in buffer:
-            buffer += shell.recv(65535).decode()
-            print(buffer)
-        print(f"Запись файла завершена.")
-        break
-    time.sleep(CHECK_INTERVAL)
+        time.sleep(5)
+    print(f"Запись файла завершена.")
 
 def execute_command(ssh_client, command, wait_time):
-    print(command)
     shell = ssh_client.invoke_shell()
     shell.send(command + "\n")
-    time.sleep(wait_time)
+    for i in range(10):
+        shell.send(' ')
+        time.sleep(1)
     output = shell.recv(65535).decode()
+    time.sleep(wait_time)
     return output
 
 def execute_command_Y(ssh_client, command, wait_time):
     shell = ssh_client.invoke_shell()
     shell.send(command + "\n")
     shell.send('Y' + "\n")
-    wait_for_write_ok(shell)
     time.sleep(wait_time)
+    return shell
     
 def execute_command_Y_lite(ssh_client, command, wait_time):
     shell = ssh_client.invoke_shell()
@@ -121,15 +125,20 @@ def execute_command_Y_lite(ssh_client, command, wait_time):
     time.sleep(wait_time)
 
 def update_switch(ssh_client, tftp_ip, filename):
+    print(f'Загрузка файла "{filename}"...')
     cmd = f"copy tftp://{tftp_ip}/{filename} nos.img"
-    execute_command_Y(ssh_client, cmd, 1)
+    shell = execute_command_Y(ssh_client, cmd, 1)
+    wait_for_write_ok(shell)
 
 def get_stack_info(ssh_client):
     print(f"Получение списка юнитов...")
     units = {}
     master_unit = None
     output = execute_command(ssh_client, "show unit", 2)
+    #output = execute_command(ssh_client, "show slot", 2)
+    print(output)
     matches = re.findall(r"-------------------- Unit (\d+) --------------------.*?Work mode\s+:\s+([A-Z]+\s*[A-Z]*)", output, re.DOTALL)
+    #matches = re.findall(r"--------------------member :(\d+)--------------------.*?Work mode\s+:\s+([A-Z]+\s*[A-Z]*)", output, re.DOTALL)
     for unit, mode in matches:
         units[unit] = mode
         if mode == "ACTIVE MASTER":
@@ -144,6 +153,9 @@ def update_slave_units(ssh_client, master_unit, units):
         cmd = f"copy nos.img member-{unit}#nos.img"
         execute_command_Y_lite(ssh_client, cmd, 2)
         print(f"Обновление юнита {unit} завершено.")
+
+def reboot_stack(ssh_client):
+    execute_command_Y(ssh_client, "reboot", 2)
 
 def main():
     config = read_config(CONFIG_FILE)
@@ -163,12 +175,18 @@ def main():
                 shell = ssh_client.invoke_shell()
                 print("Ожидание загрузки CLI...")
                 wait_for_prompt(shell)
-                updated = update_switch(ssh_client, config["tftp_server_ip"], config["filename"])
-                if updated:
-                    master, units = get_stack_info(ssh_client)
-                    update_slave_units(ssh_client, master, units)
-                    print(f"Обновление стека завершено")
-                    ssh_client.close()
+                update_switch(ssh_client, config["tftp_server_ip"], config["filename"])
+                master, units = get_stack_info(ssh_client)
+                #print(master, units)
+                update_slave_units(ssh_client, master, units)
+                print(f"Обновление стека завершено!")
+                print(f"Выполнить перезагрузку? (Y/N)")
+                a = input()
+                if a == "Y" or a == "y":
+                    print(f"Перезагрузка стека.")
+                    reboot_stack(ssh_client)
+                else:
+                    print(f"Перезагрузка отменена.")
 
 if __name__ == "__main__":
     main()

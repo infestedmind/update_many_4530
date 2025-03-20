@@ -5,4 +5,4 @@ filename: QSW-4530-X_8.2.3.254_nos.img
 login: admin
 password: admin
 .
-10.45.96.3
+10.45.30.10
